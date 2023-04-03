@@ -1,0 +1,3169 @@
+name: Create_RHEL_VM
+path: /User/private/Deployments/DeployVMs/Create_RHEL_VM
+platform: node
+hash: l+jovlW+jpghNKCC9HeVx1WOjsP8T1uQHcRNp5pQArg=
+blocks:
+  - name: if_no_dep_env_id
+    action: if
+    condition: $deployment_environment_id == 0
+    then:
+      - name: get_dep_env_id
+        action: system/MySQL/Select
+        inputs:
+          - name: authKey
+            value: "\"plidep/MySQL_PliDep\""
+          - name: table_name
+            value: "\"deployment_environments\""
+          - name: columns
+            value: "\"id\""
+          - name: where
+            value: "`deployment_environment = '${$deployment_environment}'`"
+      - name: Assign_29_dep_env_id
+        action: assign
+        variable: $deployment_environment_id
+        value: $get_dep_env_id.result[0]["id"]
+    else: []
+  - name: temp_hostname
+    function: >-
+      $initial_hostname = "";
+
+      var possible =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+
+      for (var i = 0; i < 8; i++) {
+          $initial_hostname += possible.charAt(Math.floor(Math.random() * possible.length));
+      }
+  - name: new_initial_create
+    action: system/MySQL/Insert
+    inputs:
+      - name: authKey
+        value: "\"plidep/MySQL_PliDep\""
+      - name: db_name
+        value: "\"PliDep\""
+      - name: table_name
+        value: "\"vm_builds\""
+      - name: columns
+        value: "\"(hostname,deployment_id,vm_username,vm_password)\""
+      - name: values
+        value: >-
+          `('${$initial_hostname}','${$deployment_id}','${$new_vm_username}','${$new_vm_password}')`
+  - name: get_vm_build_id
+    action: system/MySQL/MySQL Query
+    inputs:
+      - name: authKey
+        value: $mysql_auth
+      - name: db_name
+        value: "\"PliDep\""
+      - name: query
+        value: >-
+          `SELECT id FROM vm_builds WHERE deployment_id = '${$deployment_id}'
+          AND hostname = '${$initial_hostname}'`
+  - name: assign_vm_build_id
+    action: assign
+    variable: $vm_build_id
+    value: $get_vm_build_id.result[0]["id"]
+  - name: ArrayPush_18
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"VM Build ID: \" + $vm_build_id"
+  - action: comment
+    value: Generate a hostname immediately
+  - name: catch_hostname_fault
+    action: try
+    try:
+      - name: get_operating_system
+        action: system/MySQL/Select
+        inputs:
+          - name: authKey
+            value: "\"plidep/MySQL_PliDep\""
+          - name: table_name
+            value: "\"vm_templates\""
+          - name: columns
+            value: "\"distinct(template_os) AS template_os\""
+          - name: where
+            value: "`template_moid='${$Source_Template_Moid}'`"
+      - name: if_windows
+        action: if
+        condition: $get_operating_system.result[0]["template_os"].includes("win")
+        then:
+          - name: Assign_4
+            action: assign
+            variable: $operating_system
+            value: "\"windows\""
+        else:
+          - name: Assign_7
+            action: assign
+            variable: $operating_system
+            value: "\"linux\""
+      - name: ArrayPush_25
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $log
+          - name: item
+            value: "\"Generating Hostname from Service Now\""
+      - name: generate_hostname
+        action: plidep/User/private/ServiceNow/New_Hostname
+        inputs:
+          - name: CSDM
+            value: $csdm
+          - name: location_id
+            value: $site_location_id
+          - name: operating_system
+            value: $operating_system
+          - name: deployment_environment
+            value: $deployment_environment
+      - name: assign_hostname
+        action: assign
+        variable: $hostname
+        value: $generate_hostname.hostname
+      - name: ArrayPush_2_1_2
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $info
+          - name: item
+            value: "\"New hostname: \" + $hostname"
+    catch:
+      - name: If_5_1_2
+        action: if
+        condition: $plipam_ids["network2"]
+        then:
+          - name: User_34_1_2_2
+            action: plidep/User/private/SubFlows/Fail_VM_Build
+            inputs:
+              - name: vm_build_id
+                value: $vm_build_id
+              - name: build_details
+                value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+              - name: plipam_ids_one
+                value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+              - name: plipam_ids_two
+                value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+        else:
+          - name: User_34_1_1_1_2
+            action: plidep/User/private/SubFlows/Fail_VM_Build
+            inputs:
+              - name: vm_build_id
+                value: $vm_build_id
+              - name: build_details
+                value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+              - name: plipam_ids_one
+                value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+      - name: ArrayPush_5
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: "$critical  "
+          - name: item
+            value: >-
+              "Could not create a hostname: " +
+              JSON.stringify($catch_hostname_fault.message)
+      - name: _Throw_3
+        action: throw
+        error: >-
+          "Could not generate a hostname: " +
+          JSON.stringify($catch_hostname_fault.message)
+  - name: if_virtual_disks_input
+    action: if
+    condition: $virtual_disks
+    then:
+      - name: stringify_disk_config
+        action: assign
+        variable: $disk_config
+        value: JSON.stringify($virtual_disks)
+      - name: ArrayPush_3
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $info
+          - name: item
+            value: "\"Custom disk configuration: \" + $disk_config"
+    else: []
+  - name: stringify_networks
+    action: assign
+    variable: $networks_string
+    value: JSON.stringify($networks)
+  - name: ArrayPush_4
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: $networks_string
+  - name: if_backup_required_input
+    action: if
+    condition: $backup_required
+    then:
+      - name: assign_backup_required_1
+        action: assign
+        variable: $backup_required
+        value: "1"
+    else:
+      - name: assign_backup_required_0
+        action: assign
+        variable: $backup_required
+        value: "0"
+  - name: catch_get_csdm_details
+    action: try
+    try:
+      - name: get_csdm_details_from_snow
+        action: plidep/User/public/ServiceNow/Get_CSDM_Details
+        inputs:
+          - name: csdm
+            value: $csdm
+      - name: User_15
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: >-
+              "Service Now Details: " +
+              JSON.stringify($get_csdm_details_from_snow)
+    catch:
+      - name: ArrayPush_19
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $critical
+          - name: item
+            value: >-
+              "Error fetching CSDM details: " +
+              JSON.stringify($catch_get_csdm_details)
+      - name: User_18
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: >-
+              "Unable to fetch csdm details from SNOW. Failing build. " +
+              JSON.stringify($catch_get_csdm_details.message)
+      - name: If_5_1_3
+        action: if
+        condition: $plipam_ids["network2"]
+        then:
+          - name: User_34_1_2_3
+            action: plidep/User/private/SubFlows/Fail_VM_Build
+            inputs:
+              - name: vm_build_id
+                value: $vm_build_id
+              - name: build_details
+                value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+              - name: plipam_ids_one
+                value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+              - name: plipam_ids_two
+                value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+        else:
+          - name: User_34_1_1_1_3
+            action: plidep/User/private/SubFlows/Fail_VM_Build
+            inputs:
+              - name: vm_build_id
+                value: $vm_build_id
+              - name: build_details
+                value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+              - name: plipam_ids_one
+                value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+      - name: _Throw_4
+        action: throw
+        error: >-
+          "Could not fetch CSDM details from ServiceNow: " +
+          JSON.stringify($catch_get_csdm_details.message)
+  - name: If_8
+    action: if
+    condition: $get_csdm_details_from_snow.u_hostname_code == ""
+    then:
+      - name: Assign_9_1
+        action: assign
+        variable: $hostname_code
+        value: $get_csdm_details_from_snow.odin_groups[0]
+    else:
+      - name: Assign_9
+        action: assign
+        variable: $hostname_code
+        value: $get_csdm_details_from_snow.u_hostname_code
+  - name: ArrayPush_1
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $info
+      - name: item
+        value: "\"CSDM Details: \" + JSON.stringify($get_csdm_details_from_snow.result)"
+  - name: assign_csdm_details
+    action: assign
+    variable: $csdm_details
+    value: $get_csdm_details_from_snow.result
+  - name: fetch_sizes
+    action: system/MySQL/Select
+    inputs:
+      - name: authKey
+        value: $mysql_auth
+      - name: db_name
+        value: "\"PliDep\""
+      - name: table_name
+        value: "\"default_vm_sizes\""
+      - name: columns
+        value: "\"cpu_total,memory_gb_size\""
+      - name: where
+        value: "`id='${$vm_size_id}'`"
+  - name: assign_num_cpu
+    action: assign
+    variable: $num_cpu
+    value: $fetch_sizes.result[0]["cpu_total"]
+  - name: assign_mem_size
+    action: assign
+    variable: $mem_size
+    value: $fetch_sizes.result[0]["memory_gb_size"]
+  - action: comment
+    value: |
+      Get the template's username and password
+  - name: template_auth
+    action: system/MySQL/Select
+    inputs:
+      - name: authKey
+        value: $mysql_auth
+      - name: db_name
+        value: "\"PliDep\""
+      - name: table_name
+        value: "\"vm_templates\""
+      - name: columns
+        value: "\"username,password,template_moid,template_os\""
+      - name: where
+        value: "`id='${$vm_image_id}'`"
+  - name: assign_template_username
+    action: assign
+    variable: $template_username
+    value: $template_auth.result[0]["username"]
+  - name: ArrayPush_2
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"VM Username: \" + $template_auth.result[0][\"username\"]"
+  - name: decode_password
+    action: system/Common/String/StringBase64Decode
+    inputs:
+      - name: str
+        value: $template_auth.result[0]["password"]
+    skipped: true
+  - name: assign_ue_password
+    action: assign
+    variable: $ue_password
+    value: $decode_password.result
+    skipped: true
+  - name: assign_template_password
+    action: assign
+    variable: $template_password
+    value: $template_auth.result[0]["password"]
+  - name: If_10_invalid_credentials
+    action: if
+    condition: "!$template_username || !$template_password"
+    then:
+      - name: assign_template_username_2
+        action: assign
+        variable: $template_username
+        value: "\"unknown\""
+      - name: assign_template_password_1
+        action: assign
+        variable: $template_password
+        value: "\"unknown\""
+      - name: ArrayPush_20
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $warning
+          - name: item
+            value: >-
+              "Could not identify either template username or password. Much of
+              the build will fail."
+    else:
+      - name: decode_password_1
+        action: system/Common/String/StringBase64Decode
+        inputs:
+          - name: str
+            value: $template_password
+      - name: assign_ue_password_1
+        action: assign
+        variable: $ue_password
+        value: "\"unknown\""
+  - name: identify_os
+    action: if
+    condition: $template_auth.result[0]["template_os"] == "win"
+    then:
+      - name: assign_windows
+        action: assign
+        variable: $operating_system
+        value: "\"windows\""
+    else:
+      - name: assign_linux
+        action: assign
+        variable: $operating_system
+        value: "\"linux\""
+  - name: assign_source_template
+    action: assign
+    variable: $Source_Template_Moid
+    value: $template_auth.result[0]["template_moid"]
+  - name: ArrayPush_26
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"vmWare source template moid: \" + $Source_Template_Moid"
+  - action: comment
+    value: Let's get the MOIDS
+  - name: get_moids
+    action: system/MySQL/Select
+    inputs:
+      - name: authKey
+        value: $mysql_auth
+      - name: db_name
+        value: "\"PliDep\""
+      - name: table_name
+        value: "\"site_locations\""
+      - name: columns
+        value: >-
+          "vcenter_id,datacenter_cluster_moid,datacenter_datastore_moid,datacenter_folder_moid,datacenter_moid"
+      - name: where
+        value: "`id='${$site_location_id}'`"
+  - name: assign_vcenter_id
+    action: assign
+    variable: $vcenter_id
+    value: $get_moids.result[0]["vcenter_id"]
+  - name: assign_cluster_moid
+    action: assign
+    variable: $cluster_moid
+    value: $get_moids.result[0]["datacenter_cluster_moid"]
+  - name: assign_datastore_moid
+    action: assign
+    variable: $datastore_moid
+    value: $get_moids.result[0]["datacenter_datastore_moid"]
+  - name: assign_datacenter_moid
+    action: assign
+    variable: $datacenter_moid
+    value: $get_moids.result[0]["datacenter_moid"]
+  - name: if_no_folder_moid
+    action: if
+    condition: $folder_moid == ""
+    then:
+      - name: assign_folder_moid
+        action: assign
+        variable: $folder_moid
+        value: $get_moids.result[0]["datacenter_folder_moid"]
+    else: []
+  - name: ArrayPush_29
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"MOIDs to use: \" + JSON.stringify($get_moids.result)"
+  - action: comment
+    value: Now let's get the authkeys.
+  - name: authkeys
+    action: system/MySQL/MySQL Query
+    inputs:
+      - name: authKey
+        value: $mysql_auth
+      - name: db_name
+        value: "\"PliDep\""
+      - name: query
+        value: >-
+          `SELECT t1.name AS vcenter_name,t1.rest_authkey_name AS
+          rest_authkey_name,t1.soap_authkey_name AS soap_authkey_name FROM
+          vcenters t1,site_locations t2 WHERE t1.id=t2.vcenter_id AND
+          t2.id='${$site_location_id}'`
+  - name: assign_soap_authkey
+    action: assign
+    variable: $vmware_authkey_soap
+    value: $authkeys.result[0]["soap_authkey_name"]
+  - name: assign_rest_authkey
+    action: assign
+    variable: $vmware_authkey_rest
+    value: $authkeys.result[0]["rest_authkey_name"]
+  - name: Assign_26
+    action: assign
+    variable: $vcenter_name
+    value: $authkeys.result[0]["vcenter_name"]
+  - action: comment
+    value: |
+      Turn this insert into an update
+  - name: update_vm_build_info
+    action: system/MySQL/Update
+    inputs:
+      - name: authKey
+        value: "\"plidep/MySQL_PliDep\""
+      - name: db_name
+        value: "\"PliDep\""
+      - name: table_name
+        value: "\"vm_builds\""
+      - name: columnsValues
+        value: >-
+          `hostname='${$hostname}',source_template='${$Source_Template_Moid}',status='IN_PROGRESS',vcenter_id=${$vcenter_id},num_cpu='${$num_cpu}',memory_gb='${$mem_size}',vm_size_id='${$vm_size_id}',site_location_id='${$site_location_id}',vm_image_id='${$vm_image_id}',backup_required='${$backup_required}',networks='${$networks_string}',disk_config='${$disk_config}',folder_moid='${$folder_moid}'`
+      - name: where
+        value: "`id='${$vm_build_id}'`"
+  - name: User_1
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "`CSDM: '${$csdm}'\\nHostname: '${$hostname}'`"
+  - action: comment
+    value: Choose the least used VMFS datastore on the chosen host
+  - name: ArrayPush_27
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"Cluster moid to build on: \" + $cluster_moid"
+  - name: If_6
+    action: if
+    condition: $cluster_moid.includes("host")
+    then:
+      - action: comment
+        value: >-
+          Our "cluster_moid" is actually a host, not a cluster. We just  need to
+          get the resource_pool_moid
+      - name: catch_resource_pool
+        action: try
+        try:
+          - name: User_16_1
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"Create_OS_VM: Listing Resource Pools by Host.\""
+          - name: ArrayPush_32_2
+            action: system/Common/Array/ArrayPush
+            inputs:
+              - name: array
+                value: $log
+              - name: item
+                value: "\"Listing Resource Pools by Host.\""
+          - name: User_28
+            action: plidep/User/private/VMware/SubFlows/List_Resource_Pools_by_Host
+            inputs:
+              - name: vmware_rest_authkey
+                value: $vmware_authkey_rest
+              - name: host_moid
+                value: $cluster_moid
+          - name: Assign_15
+            action: assign
+            variable: $Resource_Pool_Moid
+            value: $User_28.resource_pool
+          - name: Assign_28
+            action: assign
+            variable: $Host_Moid
+            value: $cluster_moid
+          - name: User_21_2
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"Resource Pool Moid: \" + $Resource_Pool_Moid"
+          - name: User_21_2_1
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"Host Moid: \" + $Host_Moid"
+          - name: ArrayPush_40_1
+            action: system/Common/Array/ArrayPush
+            inputs:
+              - name: array
+                value: $log
+              - name: item
+                value: "\"Host Moid: \" + $Host_Moid"
+          - name: ArrayPush_43_1
+            action: system/Common/Array/ArrayPush
+            inputs:
+              - name: array
+                value: $log
+              - name: item
+                value: "\"Resource Pool Moid: \" + $Resource_Pool_Moid"
+        catch:
+          - name: ArrayPush_24
+            action: system/Common/Array/ArrayPush
+            inputs:
+              - name: array
+                value: $critical
+              - name: item
+                value: >-
+                  "Could not identify a reesource pool: " +
+                  JSON.stringify($catch_resource_pool)
+          - name: User_46
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"Could not identify a resource pool on vmWare\""
+          - name: If_5_1_4
+            action: if
+            condition: $plipam_ids["network2"]
+            then:
+              - name: User_34_1_2_4
+                action: plidep/User/private/SubFlows/Fail_VM_Build
+                inputs:
+                  - name: vm_build_id
+                    value: $vm_build_id
+                  - name: build_details
+                    value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+                  - name: plipam_ids_one
+                    value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+                  - name: plipam_ids_two
+                    value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+            else:
+              - name: User_34_1_1_1_4
+                action: plidep/User/private/SubFlows/Fail_VM_Build
+                inputs:
+                  - name: vm_build_id
+                    value: $vm_build_id
+                  - name: build_details
+                    value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+                  - name: plipam_ids_one
+                    value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+    else: []
+  - name: If_7
+    action: if
+    condition: $cluster_moid.includes("domain")
+    then:
+      - action: comment
+        value: >-
+          This is a cluster. We need to get a host in the cluster, and then get
+          the resource pool
+      - name: Try_9
+        action: try
+        try:
+          - name: User_26_1
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"Choosing least used host in cluster.\""
+          - name: User_29
+            action: >-
+              plidep/User/private/VMware/SubFlows/Pick_Least_Used_Host_in_Cluster
+            inputs:
+              - name: cluster_moid
+                value: $cluster_moid
+              - name: VMware_authKey
+                value: $vmware_authkey_soap
+          - name: Assign_31
+            action: assign
+            variable: $Host_Moid
+            value: $User_29.result["host_moid"]
+          - name: User_27_1
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"Least used host in cluster: \" + $Host_Moid"
+          - name: ArrayPush_33_2
+            action: system/Common/Array/ArrayPush
+            inputs:
+              - name: array
+                value: $log
+              - name: item
+                value: "\"Least used host in cluster: \" + $Host_Moid"
+          - name: Try_3
+            action: try
+            try:
+              - name: User_30
+                action: >-
+                  plidep/User/private/VMware/SubFlows/List_Resource_Pools_by_Host
+                inputs:
+                  - name: vmware_rest_authkey
+                    value: $vmware_authkey_rest
+                  - name: host_moid
+                    value: $Host_Moid
+              - name: Assign_32
+                action: assign
+                variable: $Resource_Pool_Moid
+                value: $User_30.resource_pool
+              - name: User_32_2
+                action: plidep/User/private/SubFlows/Add_to_VM_Log
+                inputs:
+                  - name: vm_id
+                    value: $vm_build_id
+                  - name: log_info
+                    value: "\"Resource Pool Moid: \" + $Resource_Pool_Moid"
+              - name: ArrayPush_45
+                action: system/Common/Array/ArrayPush
+                inputs:
+                  - name: array
+                    value: $log
+                  - name: item
+                    value: "\"Resource Pool Moid: \" + $Resource_Pool_Moid"
+            catch: []
+        catch:
+          - name: If_5_1_5
+            action: if
+            condition: $plipam_ids["network2"]
+            then:
+              - name: User_34_1_2_5
+                action: plidep/User/private/SubFlows/Fail_VM_Build
+                inputs:
+                  - name: vm_build_id
+                    value: $vm_build_id
+                  - name: build_details
+                    value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+                  - name: plipam_ids_one
+                    value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+                  - name: plipam_ids_two
+                    value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+            else:
+              - name: User_34_1_1_1_5
+                action: plidep/User/private/SubFlows/Fail_VM_Build
+                inputs:
+                  - name: vm_build_id
+                    value: $vm_build_id
+                  - name: build_details
+                    value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+                  - name: plipam_ids_one
+                    value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+          - name: ArrayPush_6
+            action: system/Common/Array/ArrayPush
+            inputs:
+              - name: array
+                value: $critical
+              - name: item
+                value: "\"vCenter threw an error: \" + JSON.stringify($Try_9)"
+          - name: User_34_2
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: >-
+                  "Create_OS_VM: vCenter threw an error: " +
+                  JSON.stringify($Try_9.message)
+          - name: _Throw_7
+            action: throw
+            error: JSON.stringify($Try_9.message)
+            skipped: true
+      - name: if_no_resgroup_moid
+        action: if
+        condition: "!$Resource_Pool_Moid"
+        then:
+          - name: Try_6_1
+            action: try
+            try:
+              - name: User_30_1
+                action: >-
+                  plidep/User/private/VMware/SubFlows/List_Resource_Pools_by_Host
+                inputs:
+                  - name: vmware_rest_authkey
+                    value: $vmware_authkey_rest
+                  - name: host_moid
+                    value: $Host_Moid
+              - name: Assign_32_1
+                action: assign
+                variable: $Resource_Pool_Moid
+                value: $User_30_1.resource_pool
+              - name: User_39_1
+                action: plidep/User/private/SubFlows/Add_to_VM_Log
+                inputs:
+                  - name: vm_id
+                    value: $vm_build_id
+                  - name: log_info
+                    value: "\"Resource Pool Moid: \" + $Resource_Pool_Moid"
+              - name: ArrayPush_46
+                action: system/Common/Array/ArrayPush
+                inputs:
+                  - name: array
+                    value: $log
+                  - name: item
+                    value: "\"Resource_Pool_Moid: \" + $Resource_Pool_Moid"
+            catch:
+              - name: ArrayPush_18_1
+                action: system/Common/Array/ArrayPush
+                inputs:
+                  - name: array
+                    value: $warning
+                  - name: item
+                    value: >-
+                      "Could not identify a reesource pool: " +
+                      JSON.stringify($Try_6_1)
+              - name: User_46_1
+                action: plidep/User/private/SubFlows/Add_to_VM_Log
+                inputs:
+                  - name: vm_id
+                    value: $vm_build_id
+                  - name: log_info
+                    value: "\"Could not identify a resource pool on vmWare\""
+        else: []
+      - name: If_1
+        action: if
+        condition: $Host_Moid == ""
+        then:
+          - name: If_5_1_4_1
+            action: if
+            condition: $plipam_ids["network2"]
+            then:
+              - name: User_34_1_2_4_1
+                action: plidep/User/private/SubFlows/Fail_VM_Build
+                inputs:
+                  - name: vm_build_id
+                    value: $vm_build_id
+                  - name: build_details
+                    value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+                  - name: plipam_ids_one
+                    value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+                  - name: plipam_ids_two
+                    value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+            else:
+              - name: User_34_1_1_1_4_1
+                action: plidep/User/private/SubFlows/Fail_VM_Build
+                inputs:
+                  - name: vm_build_id
+                    value: $vm_build_id
+                  - name: build_details
+                    value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+                  - name: plipam_ids_one
+                    value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+          - name: User_40_1
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"vCenter could not identify a host to use.\""
+          - name: ArrayPush_7
+            action: system/Common/Array/ArrayPush
+            inputs:
+              - name: array
+                value: $critical
+              - name: item
+                value: "\"vCenter could not identify a Host to use.\""
+          - name: _Throw_2
+            action: throw
+            error: "\"Could not identify a vmWare Host.\""
+        else: []
+    else: []
+  - name: ArrayPush_30
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"Resource Pool Moid: \" + $Resource_Pool_Moid"
+  - name: User_2
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "\"Beginning Clone\""
+  - action: comment
+    value: Begin Clone_VM
+  - name: if_vm_template_or_library_item
+    action: if
+    condition: $Source_Template_Moid.includes("vm")
+    then:
+      - action: comment
+        value: vm-template
+      - name: User_50
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Beginning Clone VM Process\""
+      - name: Try_29
+        action: try
+        try:
+          - name: clone_vm
+            action: plidep/User/private/Deployments/DeployVMs/Clone_VM
+            inputs:
+              - name: Source_Template_Moid
+                value: $Source_Template_Moid
+              - name: hostname
+                value: $hostname
+              - name: vmware_authkey_soap
+                value: $vmware_authkey_soap
+              - name: Resource_Pool_Moid
+                value: $Resource_Pool_Moid
+              - name: Host_Moid
+                value: $Host_Moid
+              - name: vmware_authkey_rest
+                value: $vmware_authkey_rest
+              - name: vm_build_id
+                value: $vm_build_id
+              - name: cluster_moid
+                value: $cluster_moid
+              - name: datastore_moid
+                value: $datastore_moid
+              - name: datacenter_moid
+                value: $datacenter_moid
+              - name: folder_moid
+                value: $folder_moid
+          - name: User_52
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"Completed Clone VM flow\""
+          - name: Assign_8
+            action: assign
+            variable: $vm_moid
+            value: $clone_vm.vm_moid
+          - name: User_45
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"Clone VM: \\n\" + JSON.stringify($clone_vm) + \"\\nEnd Clone VM\""
+          - name: ArrayPush_8_1
+            action: system/Common/Array/ArrayPush
+            inputs:
+              - name: array
+                value: $log
+              - name: item
+                value: "{\"clone_vm\": $clone_vm.result }"
+        catch:
+          - name: If_9
+            action: if
+            condition: $plipam_ids["network2"]
+            then:
+              - name: User_34_1
+                action: plidep/User/private/SubFlows/Fail_VM_Build
+                inputs:
+                  - name: vm_build_id
+                    value: $vm_build_id
+                  - name: build_details
+                    value: "\"Failed to Clone VM: \" + JSON.stringify($Try_29.message)"
+                  - name: plipam_ids_one
+                    value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+                  - name: plipam_ids_two
+                    value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+              - name: User_47
+                action: plidep/User/private/SubFlows/Add_to_VM_Log
+                inputs:
+                  - name: vm_id
+                    value: $vm_build_id
+                  - name: log_info
+                    value: >-
+                      "Failure in clone process: " +
+                      JSON.stringify($Try_29.message)
+              - name: _Throw_1
+                action: throw
+                error: "\"Failed to Clone VM: \" + JSON.stringify($Try_29.message)"
+            else:
+              - name: User_34_1_1
+                action: plidep/User/private/SubFlows/Fail_VM_Build
+                inputs:
+                  - name: vm_build_id
+                    value: $vm_build_id
+                  - name: build_details
+                    value: "\"Failed to Clone VM: \" + JSON.stringify($Try_29.message)"
+                  - name: plipam_ids_one
+                    value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+              - name: User_47_1
+                action: plidep/User/private/SubFlows/Add_to_VM_Log
+                inputs:
+                  - name: vm_id
+                    value: $vm_build_id
+                  - name: log_info
+                    value: >-
+                      "Failure in clone process: " +
+                      JSON.stringify($Try_29.message)
+              - name: _Throw_2_1
+                action: throw
+                error: "\"Failed to Clone VM: \" + JSON.stringify($Try_29.message)"
+    else:
+      - action: comment
+        value: content library item
+      - name: User_33
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Beginning cloning library item.\""
+      - name: Try_6
+        action: try
+        try:
+          - name: if_no_resource_pool
+            action: if
+            condition: $Resource_Pool_Moid == ""
+            then:
+              - name: User_3
+                action: >-
+                  plidep/User/private/VMware/SubFlows/List_Resource_Pools_by_Cluster
+                inputs:
+                  - name: vmware_rest_authkey
+                    value: $vmware_authkey_rest
+                  - name: cluster_moid
+                    value: $cluster_moid
+              - name: Assign_10
+                action: assign
+                variable: $Resource_Pool_Moid
+                value: $User_3["resource_pool"]
+            else: []
+          - name: library_clone
+            action: plidep/User/private/Deployments/DeployVMs/Deploy_Library_Item
+            inputs:
+              - name: library_moid
+                value: $Source_Template_Moid
+              - name: hostname
+                value: $hostname
+              - name: folder_moid
+                value: $folder_moid
+              - name: resource_pool_moid
+                value: $Resource_Pool_Moid
+              - name: host_moid
+                value: $Host_Moid
+              - name: vmware_authkey_rest
+                value: $vmware_authkey_rest
+              - name: datastore_moid
+                value: $datastore_moid
+          - name: User_51
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"Completed library clone routine\""
+          - name: ArrayPush_9
+            action: system/Common/Array/ArrayPush
+            inputs:
+              - name: array
+                value: $log
+              - name: item
+                value: $library_clone.result
+          - name: Assign_14
+            action: assign
+            variable: $vm_moid
+            value: $library_clone.vm_moid
+          - name: User_45_1
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: >-
+                  "Clone VM: \n" + JSON.stringify($library_clone) + "\nEnd Clone
+                  VM"
+        catch:
+          - name: If_9_1
+            action: if
+            condition: $plipam_ids["network2"]
+            then:
+              - name: User_34_1_2
+                action: plidep/User/private/SubFlows/Fail_VM_Build
+                inputs:
+                  - name: vm_build_id
+                    value: $vm_build_id
+                  - name: build_details
+                    value: "\"Failed to Clone VM: \" + JSON.stringify($Try_13.message)"
+                  - name: plipam_ids_one
+                    value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+                  - name: plipam_ids_two
+                    value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+              - name: _Throw_1_1
+                action: throw
+                error: "\"Failed to Clone VM: \" + JSON.stringify($Try_6.message)"
+            else:
+              - name: User_34_1_1_1
+                action: plidep/User/private/SubFlows/Fail_VM_Build
+                inputs:
+                  - name: vm_build_id
+                    value: $vm_build_id
+                  - name: build_details
+                    value: "\"Failed to Clone VM: \" + JSON.stringify($Try_13.message)"
+                  - name: plipam_ids_one
+                    value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+              - name: _Throw_2_1_1
+                action: throw
+                error: "\"Failed to Clone VM: \" + JSON.stringify($Try_6.message)"
+  - action: comment
+    value: |
+      End VM Clone
+  - name: MySQL_12
+    action: system/MySQL/Update
+    inputs:
+      - name: authKey
+        value: $mysql_auth
+      - name: db_name
+        value: "\"PliDep\""
+      - name: table_name
+        value: "\"vm_builds\""
+      - name: columnsValues
+        value: "`vm_moid='${$vm_moid}'`"
+      - name: where
+        value: "`id='${$vm_build_id}'`"
+  - name: Try_4
+    action: try
+    try:
+      - name: User_4
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Configuring RAM: \" + $mem_size"
+      - name: ArrayPush_10
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $log
+          - name: item
+            value: "\"Configuring \" + $mem_size + \" RAM\""
+      - name: configure_memory
+        action: plidep/User/private/VMware/SubFlows/Configure_Memory_on_VM
+        inputs:
+          - name: VM_Moid
+            value: $vm_moid
+          - name: Memory_MB
+            value: $mem_size * 1024
+          - name: VMware_SOAP_authKey
+            value: "$vmware_authkey_soap "
+    catch:
+      - name: User_5
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Configuring RAM failed: \" + $Try_4.message"
+      - name: If_5_1_1
+        action: if
+        condition: $plipam_ids["network2"]
+        then:
+          - name: User_34_1_2_1
+            action: plidep/User/private/SubFlows/Fail_VM_Build
+            inputs:
+              - name: vm_build_id
+                value: $vm_build_id
+              - name: build_details
+                value: "\"Failed to Clone VM: \" + JSON.stringify($Try_4.message)"
+              - name: plipam_ids_one
+                value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+              - name: plipam_ids_two
+                value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+        else:
+          - name: User_34_1_1_1_1
+            action: plidep/User/private/SubFlows/Fail_VM_Build
+            inputs:
+              - name: vm_build_id
+                value: $vm_build_id
+              - name: build_details
+                value: "\"Failed to Clone VM: \" + JSON.stringify($Try_4.message)"
+              - name: plipam_ids_one
+                value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+      - name: User_48
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Error configuring memory: \" + JSON.stringify($Try_4.message)"
+      - name: ArrayPush_11
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $critical
+          - name: item
+            value: >-
+              "vCenter threw an error when configuring memory for " + $hostname
+              + ": " + JSON.stringify($Try_4.result)
+      - name: User_35
+        action: plidep/User/private/Deployments/DeleteVMs/Delete_VM
+        inputs:
+          - name: vmware_rest_authkey
+            value: $vmware_authkey_rest
+          - name: vm_id
+            value: $vm_moid
+      - name: _Throw_8
+        action: throw
+        error: >-
+          "vCenter threw an error when configuring memory for " + $hostname + ":
+          " + JSON.stringify($Try_4.result)
+  - name: Try_5
+    action: try
+    try:
+      - name: User_6
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Configuring \" + $num_cpu + \" cpus\""
+      - name: A16
+        action: plidep/User/private/VMware/SubFlows/Configure_CPUs_on_VM
+        inputs:
+          - name: VM_Moid
+            value: $vm_moid
+          - name: Num_CPU_Sockets
+            value: $num_cpu
+          - name: VMware_SOAP_authKey
+            value: "$vmware_authkey_soap "
+          - name: Num_Cores_per_Socket
+            value: "1"
+    catch:
+      - name: User_7
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"CPU configuration failed: \" + JSON.stringify($Try_5.message)"
+      - name: If_5_1_4_2
+        action: if
+        condition: $plipam_ids["network2"]
+        then:
+          - name: User_34_1_2_4_2
+            action: plidep/User/private/SubFlows/Fail_VM_Build
+            inputs:
+              - name: vm_build_id
+                value: $vm_build_id
+              - name: build_details
+                value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+              - name: plipam_ids_one
+                value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+              - name: plipam_ids_two
+                value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+        else:
+          - name: User_34_1_1_1_4_2
+            action: plidep/User/private/SubFlows/Fail_VM_Build
+            inputs:
+              - name: vm_build_id
+                value: $vm_build_id
+              - name: build_details
+                value: "\"Failed to Clone VM: \" + JSON.stringify($Try_3.message)"
+              - name: plipam_ids_one
+                value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+      - name: User_36
+        action: plidep/User/private/Deployments/DeleteVMs/Delete_VM
+        inputs:
+          - name: vmware_rest_authkey
+            value: $vmware_authkey_rest
+          - name: vm_id
+            value: $vm_build_id
+      - name: ArrayPush_12
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $critical
+          - name: item
+            value: >-
+              `vCenter threw an error when configuring the CPU count for
+              ${$hostname}: ` + JSON.stringify($Try_5.message)
+      - name: _Throw_9
+        action: throw
+        error: >-
+          `vCenter threw an error when configuring the CPU count for
+          ${$hostname}`
+  - name: User_22
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "\"Powering on VM\""
+  - name: VMWare_2
+    action: system/VMWare/vSphere v7/vCenter/VM/Power/Start Power
+    inputs:
+      - name: authKey
+        value: $vmware_authkey_rest
+      - name: vm
+        value: $vm_moid
+  - action: comment
+    value: Wait for the VM to be fully available
+  - name: A15
+    action: system/Common/Sleep
+    inputs:
+      - name: seconds
+        value: "45"
+  - action: comment
+    value: Test Operating System credentials
+  - name: If_8_unknown_username
+    action: if
+    condition: $template_username == "unknown"
+    then:
+      - name: User_23_1
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Network must be configured manually.\""
+      - name: User_23_1_2
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Hostname must be configured manually.\""
+      - name: User_23_1_2_2
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Custom disks must be configured manually.\""
+      - name: ArrayPush_13
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $warning
+          - name: item
+            value: "\"Network must be configured manually.\""
+      - name: ArrayPush_13_3
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $warning
+          - name: item
+            value: "\"Hostname must be configured manually.\""
+      - name: ArrayPush_13_2
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $warning
+          - name: item
+            value: "\"Any custom disks must be configured manually.\""
+    else:
+      - name: if_redhat_centos
+        action: if
+        condition: 1 == 1
+        then:
+          - name: Try_7
+            action: try
+            try:
+              - name: decrypt_password
+                action: system/Common/String/StringBase64Decode
+                inputs:
+                  - name: str
+                    value: $new_vm_password
+              - name: Assign_11
+                action: assign
+                variable: $new_ue_vm_password
+                value: $decrypt_password.result
+              - name: User_31_2
+                action: plidep/User/private/SubFlows/Add_to_VM_Log
+                inputs:
+                  - name: vm_id
+                    value: $vm_build_id
+                  - name: log_info
+                    value: "\"Waiting for VM to become available.\""
+              - name: wait_for_login
+                action: plidep/User/private/VMware/SubFlows/Wait_for_Login
+                inputs:
+                  - name: vm_moid
+                    value: $vm_moid
+                  - name: vmware_authkey_soap
+                    value: $vmware_authkey_soap
+                  - name: username
+                    value: $template_username
+                  - name: password
+                    value: $template_password
+              - name: If_5
+                action: if
+                condition: $wait_for_login.result == "Is available"
+                then:
+                  - name: User_31_3
+                    action: plidep/User/private/SubFlows/Add_to_VM_Log
+                    inputs:
+                      - name: vm_id
+                        value: $vm_build_id
+                      - name: log_info
+                        value: >-
+                          "Unable to log on to VM. It may not be powered on, or
+                          may have an other issue."
+                else:
+                  - name: User_31_3_1
+                    action: plidep/User/private/SubFlows/Add_to_VM_Log
+                    inputs:
+                      - name: vm_id
+                        value: $vm_build_id
+                      - name: log_info
+                        value: "\"Logon available.\""
+                  - name: _Throw_11
+                    action: throw
+                    error: "\"Unable to log on to VM after a 5 minute wait.\""
+              - name: if_root
+                action: if
+                condition: $template_username == "root"
+                then:
+                  - action: comment
+                    value: Get and set serial number
+                  - name: Try_15
+                    action: try
+                    try:
+                      - name: User_31_1
+                        action: plidep/User/private/SubFlows/Add_to_VM_Log
+                        inputs:
+                          - name: vm_id
+                            value: $vm_build_id
+                          - name: log_info
+                            value: "\"Fetching serial number\""
+                      - name: ArrayPush_28_1
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $log
+                          - name: item
+                            value: "\"Fetching serial number\""
+                      - name: User_21
+                        action: >-
+                          plidep/User/private/VMware/SubFlows/Run_BASH_Script_On_Linux_VM
+                        inputs:
+                          - name: VM_Moid
+                            value: $vm_moid
+                          - name: ScriptText
+                            value: "\"dmidecode -s system-serial-number\""
+                          - name: Guest_Username
+                            value: $template_username
+                          - name: Guest_Password
+                            value: $template_password
+                          - name: vCenter_SOAP_authKey
+                            value: $vmware_authkey_soap
+                      - name: ArrayPush_8_2
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $warning
+                          - name: item
+                            value: >-
+                              "Serial number output: " +
+                              JSON.stringify($User_21)
+                      - name: Assign_5
+                        action: assign
+                        variable: $serial_number
+                        value: $User_21.result["command_output"]
+                      - name: ArrayPush_31_1
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $log
+                          - name: item
+                            value: "\"Serial Number: \" + $serial_number"
+                    catch:
+                      - name: ArrayPush_50_1
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $critical
+                          - name: item
+                            value: >-
+                              "Could not identify serial number: " +
+                              JSON.stringify($Try_15.message)
+                  - action: comment
+                    value: Create user account with sudo rights
+                  - name: Try_17
+                    action: try
+                    try:
+                      - name: User_32_1
+                        action: plidep/User/private/SubFlows/Add_to_VM_Log
+                        inputs:
+                          - name: vm_id
+                            value: $vm_build_id
+                          - name: log_info
+                            value: "\"Creating local user.\""
+                      - name: ArrayPush_32_1
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $log
+                          - name: item
+                            value: "\"Creating user\""
+                      - name: User_21_create_user
+                        action: >-
+                          plidep/User/private/VMware/SubFlows/Run_BASH_Script_On_Linux_VM
+                        inputs:
+                          - name: VM_Moid
+                            value: $vm_moid
+                          - name: ScriptText
+                            value: "\"adduser \" + $new_vm_username"
+                          - name: Guest_Username
+                            value: $template_username
+                          - name: Guest_Password
+                            value: $template_password
+                          - name: vCenter_SOAP_authKey
+                            value: $vmware_authkey_soap
+                      - name: User_32_1_1
+                        action: plidep/User/private/SubFlows/Add_to_VM_Log
+                        inputs:
+                          - name: vm_id
+                            value: $vm_build_id
+                          - name: log_info
+                            value: >-
+                              "Local user output: " +
+                              JSON.stringify($User_21_create_user.result)
+                      - name: ArrayPush_44_1
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $warning
+                          - name: item
+                            value: >-
+                              "Create User output: " +
+                              JSON.stringify($User_21_create_user)
+                      - name: StringBase64Decode_2
+                        action: system/Common/String/StringBase64Decode
+                        inputs:
+                          - name: str
+                            value: $new_vm_password
+                      - name: Assign_13
+                        action: assign
+                        variable: $new_ue_vm_password
+                        value: $StringBase64Decode_2.result
+                      - name: set_new_user_password
+                        action: >-
+                          plidep/User/private/VMware/SubFlows/Run_BASH_Script_On_Linux_VM
+                        inputs:
+                          - name: VM_Moid
+                            value: $vm_moid
+                          - name: ScriptText
+                            value: >-
+                              `echo '${$new_ue_vm_password}' | passwd --stdin
+                              ${$new_vm_username}`
+                          - name: Guest_Username
+                            value: $template_username
+                          - name: Guest_Password
+                            value: $template_password
+                          - name: vCenter_SOAP_authKey
+                            value: $vmware_authkey_soap
+                      - name: ArrayPush_47_1
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $warning
+                          - name: item
+                            value: >-
+                              "Set user password output: " +
+                              JSON.stringify($set_new_user_password)
+                    catch:
+                      - name: _Throw_10_1
+                        action: throw
+                        error: >-
+                          "Unable to create new user: " +
+                          JSON.stringify($Try_17.message)
+                  - name: Try_19
+                    action: try
+                    try:
+                      - name: set_new_user_wheel
+                        action: >-
+                          plidep/User/private/VMware/SubFlows/Run_BASH_Script_On_Linux_VM
+                        inputs:
+                          - name: VM_Moid
+                            value: $vm_moid
+                          - name: ScriptText
+                            value: "\"usermod -aG wheel \" + $new_vm_username"
+                          - name: Guest_Username
+                            value: $template_username
+                          - name: Guest_Password
+                            value: $template_password
+                          - name: vCenter_SOAP_authKey
+                            value: $vmware_authkey_soap
+                      - name: ArrayPush_48_2
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $warning
+                          - name: item
+                            value: >-
+                              "Set user into wheel output: " +
+                              JSON.stringify($set_new_user_wheel)
+                      - name: ArrayPush_33_1
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $info
+                          - name: item
+                            value: "\"Created local user: \" + $new_vm_username"
+                    catch:
+                      - name: ArrayPush_51_1
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $critical
+                          - name: item
+                            value: >-
+                              "There was an error putting the new user into the
+                              wheel group: " + JSON.stringify($Try_19.message)
+                  - name: MySQL_3
+                    action: system/MySQL/Update
+                    inputs:
+                      - name: authKey
+                        value: "\"plidep/MySQL_PliDep\""
+                      - name: table_name
+                        value: "\"vm_builds\""
+                      - name: columnsValues
+                        value: >-
+                          `vm_username='${$hostname_code}_admin',vm_password='${$new_vm_password}'`
+                      - name: where
+                        value: "`id='${$vm_build_id}'`"
+                else:
+                  - action: comment
+                    value: Get and set serial number
+                  - name: Try_13
+                    action: try
+                    try:
+                      - name: User_31
+                        action: plidep/User/private/SubFlows/Add_to_VM_Log
+                        inputs:
+                          - name: vm_id
+                            value: $vm_build_id
+                          - name: log_info
+                            value: "\"Fetching serial number\""
+                      - name: ArrayPush_28
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $log
+                          - name: item
+                            value: "\"Fetching serial number\""
+                      - name: User_21_1
+                        action: >-
+                          plidep/User/private/VMware/SubFlows/Run_BASH_Script_On_Linux_VM
+                        inputs:
+                          - name: VM_Moid
+                            value: $vm_moid
+                          - name: ScriptText
+                            value: >-
+                              `echo ${$ue_password} | dmidecode -s
+                              system-serial-number`
+                          - name: Guest_Username
+                            value: $template_username
+                          - name: Guest_Password
+                            value: $template_password
+                          - name: vCenter_SOAP_authKey
+                            value: $vmware_authkey_soap
+                      - name: ArrayPush_8
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $warning
+                          - name: item
+                            value: >-
+                              "Serial number output: " +
+                              JSON.stringify($User_21_1)
+                      - name: Assign_6
+                        action: assign
+                        variable: $serial_number
+                        value: $User_21_1.result["command_output"]
+                      - name: ArrayPush_31
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $log
+                          - name: item
+                            value: "\"Serial Number: \" + $serial_number"
+                    catch:
+                      - name: ArrayPush_50
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $critical
+                          - name: item
+                            value: >-
+                              "Could not identify serial number: " +
+                              JSON.stringify($Try_13.message)
+                  - action: comment
+                    value: Create user account with sudo rights
+                  - name: Try_16
+                    action: try
+                    try:
+                      - name: User_32
+                        action: plidep/User/private/SubFlows/Add_to_VM_Log
+                        inputs:
+                          - name: vm_id
+                            value: $vm_build_id
+                          - name: log_info
+                            value: "\"Creating local user.\""
+                      - name: ArrayPush_32
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $log
+                          - name: item
+                            value: "\"Creating user\""
+                      - name: User_21_create_user_1
+                        action: >-
+                          plidep/User/private/VMware/SubFlows/Run_BASH_Script_On_Linux_VM
+                        inputs:
+                          - name: VM_Moid
+                            value: $vm_moid
+                          - name: ScriptText
+                            value: >-
+                              `echo '${$ue_password}' | echo
+                              '${$new_ue_vm_password}' | sudo -S adduser
+                              ${$new_vm_username}`
+                          - name: Guest_Username
+                            value: $template_username
+                          - name: Guest_Password
+                            value: $template_password
+                          - name: vCenter_SOAP_authKey
+                            value: $vmware_authkey_soap
+                      - name: ArrayPush_44
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $warning
+                          - name: item
+                            value: >-
+                              "Create User output: " +
+                              JSON.stringify($User_21_create_user_1)
+                      - name: StringBase64Decode_1
+                        action: system/Common/String/StringBase64Decode
+                        inputs:
+                          - name: str
+                            value: $new_vm_password
+                      - name: Assign_13_1
+                        action: assign
+                        variable: $new_ue_vm_password
+                        value: $StringBase64Decode_1.result
+                      - name: set_new_user_password_1
+                        action: >-
+                          plidep/User/private/VMware/SubFlows/Run_BASH_Script_On_Linux_VM
+                        inputs:
+                          - name: VM_Moid
+                            value: $vm_moid
+                          - name: ScriptText
+                            value: >-
+                              `echo '${$ue_password}' | echo
+                              '${$new_ue_vm_password}' | sudo -S passwd --stdin
+                              ${$new_vm_username}`
+                          - name: Guest_Username
+                            value: $template_username
+                          - name: Guest_Password
+                            value: $template_password
+                          - name: vCenter_SOAP_authKey
+                            value: $vmware_authkey_soap
+                      - name: ArrayPush_47
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $warning
+                          - name: item
+                            value: >-
+                              "Set user password output: " +
+                              JSON.stringify($set_new_user_password_1)
+                    catch:
+                      - name: _Throw_10
+                        action: throw
+                        error: >-
+                          "Unable to create new user: " +
+                          JSON.stringify($Try_16.message)
+                  - name: Try_18
+                    action: try
+                    try:
+                      - name: set_new_user_wheel_1
+                        action: >-
+                          plidep/User/private/VMware/SubFlows/Run_BASH_Script_On_Linux_VM
+                        inputs:
+                          - name: VM_Moid
+                            value: $vm_moid
+                          - name: ScriptText
+                            value: >-
+                              `echo '${$ue_password}' | sudo -S usermod -aG
+                              wheel ${$new_vm_username}`
+                          - name: Guest_Username
+                            value: $template_username
+                          - name: Guest_Password
+                            value: $template_password
+                          - name: vCenter_SOAP_authKey
+                            value: $vmware_authkey_soap
+                      - name: ArrayPush_48
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $warning
+                          - name: item
+                            value: >-
+                              "Set user into wheel output: " +
+                              JSON.stringify($set_new_user_wheel_1)
+                      - name: ArrayPush_33
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $info
+                          - name: item
+                            value: "\"Created local user: \" + $new_vm_username"
+                    catch:
+                      - name: ArrayPush_51
+                        action: system/Common/Array/ArrayPush
+                        inputs:
+                          - name: array
+                            value: $critical
+                          - name: item
+                            value: >-
+                              "There was an error putting the new user into the
+                              wheel group: " + JSON.stringify($Try_18.message)
+                  - name: MySQL_3_1
+                    action: system/MySQL/Update
+                    inputs:
+                      - name: authKey
+                        value: "\"plidep/MySQL_PliDep\""
+                      - name: table_name
+                        value: "\"vm_builds\""
+                      - name: columnsValues
+                        value: >-
+                          `vm_username='${$hostname_code}_admin',vm_password='${$new_vm_password}'`
+                      - name: where
+                        value: "`id='${$vm_build_id}'`"
+            catch:
+              - name: If_4
+                action: if
+                condition: >-
+                  JSON.stringify($Try_7.message).includes("The configured VM
+                  Guest credentials are invalid.")
+                then:
+                  - name: User_56
+                    action: plidep/User/private/SubFlows/Add_to_VM_Log
+                    inputs:
+                      - name: vm_id
+                        value: $vm_build_id
+                      - name: log_info
+                        value: >-
+                          "Create_OS_VM: The configured o/s credentials are
+                          invalid."
+                  - name: MySQL_14
+                    action: system/MySQL/Update
+                    inputs:
+                      - name: authKey
+                        value: $mysql_auth
+                      - name: db_name
+                        value: "\"PliDep\""
+                      - name: table_name
+                        value: "\"vm_builds\""
+                      - name: columnsValues
+                        value: >-
+                          "status='FAILED',build_details='The configured O/S
+                          credentials are invalid'"
+                      - name: where
+                        value: "`id='${$vm_build_id}'`"
+                  - name: If_5_1_4_4_1
+                    action: if
+                    condition: $plipam_ids["network2"]
+                    then:
+                      - name: User_34_1_2_4_4_1
+                        action: plidep/User/private/SubFlows/Fail_VM_Build
+                        inputs:
+                          - name: vm_build_id
+                            value: $vm_build_id
+                          - name: build_details
+                            value: >-
+                              "Failed to Clone VM: " +
+                              JSON.stringify($Try_7.message)
+                          - name: plipam_ids_one
+                            value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+                          - name: plipam_ids_two
+                            value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+                    else:
+                      - name: User_34_1_1_1_4_4_1
+                        action: plidep/User/private/SubFlows/Fail_VM_Build
+                        inputs:
+                          - name: vm_build_id
+                            value: $vm_build_id
+                          - name: build_details
+                            value: >-
+                              "Failed to Clone VM: " +
+                              JSON.stringify($Try_7.message)
+                          - name: plipam_ids_one
+                            value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+                  - name: User_37
+                    action: plidep/User/private/Deployments/DeleteVMs/Delete_VM
+                    inputs:
+                      - name: vmware_rest_authkey
+                        value: $vmware_authkey_rest
+                      - name: vm_id
+                        value: $vm_build_id
+                  - name: ArrayPush_14
+                    action: system/Common/Array/ArrayPush
+                    inputs:
+                      - name: array
+                        value: $critical
+                      - name: item
+                        value: >-
+                          "The configured O/S credentials are invalid.
+                          Cancelling build."
+                  - name: _Throw_6
+                    action: throw
+                    error: >-
+                      "An issue is preventing VMWare from running commands on
+                      the guest."
+                else:
+                  - name: User_40
+                    action: plidep/User/private/SubFlows/Add_to_VM_Log
+                    inputs:
+                      - name: vm_id
+                        value: $vm_build_id
+                      - name: log_info
+                        value: "\"Build failed: \" + JSON.stringify($Try_7.message)"
+                  - name: MySQL_15
+                    action: system/MySQL/Update
+                    inputs:
+                      - name: authKey
+                        value: $mysql_auth
+                      - name: db_name
+                        value: "\"PliDep\""
+                      - name: table_name
+                        value: "\"vm_builds\""
+                      - name: columnsValues
+                        value: >-
+                          "status='FAILED',build_details='An issue is preventing
+                          VMWare from running commands on the guest.'"
+                      - name: where
+                        value: "`id='${$vm_build_id}'`"
+                  - name: If_5_1_4_4
+                    action: if
+                    condition: $plipam_ids["network2"]
+                    then:
+                      - name: User_34_1_2_4_4
+                        action: plidep/User/private/SubFlows/Fail_VM_Build
+                        inputs:
+                          - name: vm_build_id
+                            value: $vm_build_id
+                          - name: build_details
+                            value: >-
+                              "Failed to Clone VM: " +
+                              JSON.stringify($Try_7.message)
+                          - name: plipam_ids_one
+                            value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+                          - name: plipam_ids_two
+                            value: "[$plipam_ids[\"network2\"][$build_index_id]]"
+                    else:
+                      - name: User_34_1_1_1_4_4
+                        action: plidep/User/private/SubFlows/Fail_VM_Build
+                        inputs:
+                          - name: vm_build_id
+                            value: $vm_build_id
+                          - name: build_details
+                            value: >-
+                              "Failed to Clone VM: " +
+                              JSON.stringify($Try_7.message)
+                          - name: plipam_ids_one
+                            value: "[$plipam_ids[\"network1\"][$build_index_id]]"
+                  - name: User_38
+                    action: plidep/User/private/Deployments/DeleteVMs/Delete_VM
+                    inputs:
+                      - name: vmware_rest_authkey
+                        value: $vmware_authkey_rest
+                      - name: vm_id
+                        value: $vm_build_id
+                  - name: ArrayPush_15
+                    action: system/Common/Array/ArrayPush
+                    inputs:
+                      - name: array
+                        value: $critical
+                      - name: item
+                        value: >-
+                          "An issue is preventing VMWare from running commands
+                          on the guest."
+                  - name: _Throw_5
+                    action: throw
+                    error: >-
+                      "An issue is preventing VMWare from running commands on
+                      the guest."
+          - action: comment
+            value: Configure hostname
+          - name: Try_8
+            action: try
+            try:
+              - name: ArrayPush_34
+                action: system/Common/Array/ArrayPush
+                inputs:
+                  - name: array
+                    value: $log
+                  - name: item
+                    value: "\"Attempting to configure hostname on VM\""
+              - name: User_8
+                action: plidep/User/private/SubFlows/Add_to_VM_Log
+                inputs:
+                  - name: vm_id
+                    value: $vm_build_id
+                  - name: log_info
+                    value: "\"Configuring hostname\""
+              - name: If_2
+                action: if
+                condition: $template_username == "root"
+                then:
+                  - name: Assign_18
+                    action: assign
+                    variable: $hostname_command
+                    value: "`echo ${$hostname} | tee /etc/hostname`"
+                else:
+                  - name: Assign_19
+                    action: assign
+                    variable: $hostname_command
+                    value: >-
+                      `echo ${$ue_password} | sudo -S echo ${$hostname} | tee
+                      /etc/hostname`
+              - name: User_17
+                action: plidep/User/private/SubFlows/Add_to_VM_Log
+                inputs:
+                  - name: vm_id
+                    value: $vm_build_id
+                  - name: log_info
+                    value: "`Hostname command: ${$hostname_command}`"
+              - name: set_hostname
+                action: >-
+                  plidep/User/private/VMware/SubFlows/Run_BASH_Script_On_Linux_VM
+                inputs:
+                  - name: VM_Moid
+                    value: $vm_moid
+                  - name: ScriptText
+                    value: $hostname_command
+                  - name: Guest_Username
+                    value: $template_username
+                  - name: Guest_Password
+                    value: $template_password
+                  - name: vCenter_SOAP_authKey
+                    value: $vmware_authkey_soap
+              - name: ArrayPush_49
+                action: system/Common/Array/ArrayPush
+                inputs:
+                  - name: array
+                    value: $warning
+                  - name: item
+                    value: "\"Set hostname output: \" + JSON.stringify($set_hostname)"
+            catch:
+              - name: User_9
+                action: plidep/User/private/SubFlows/Add_to_VM_Log
+                inputs:
+                  - name: vm_id
+                    value: $vm_build_id
+                  - name: log_info
+                    value: >-
+                      "Failed to configure hostname: " +
+                      JSON.stringify($Try_8.message)
+              - name: MySQL_9
+                action: system/MySQL/Update
+                inputs:
+                  - name: authKey
+                    value: $mysql_auth
+                  - name: table_name
+                    value: "\"vm_builds\""
+                  - name: columnsValues
+                    value: "\"status='ERROR',build_details='Failed to set hostname.'\""
+                  - name: where
+                    value: "`id='${$vm_build_id}'`"
+              - name: ArrayPush_16
+                action: system/Common/Array/ArrayPush
+                inputs:
+                  - name: array
+                    value: $warning
+                  - name: item
+                    value: >-
+                      "Unable to configure the guest hostname automatically.
+                      This will need to be configured manually. Error is as
+                      follows: " + JSON.stringify($Try_8)
+        else: []
+  - action: comment
+    value: >-
+      If there are NO virtual disks passed, then the $virtual_disks variable is
+      NULL. If this is the case then the "length" method will fail, and so will
+      the flow, so let's run a quick check first.
+  - name: if_virtual_disks
+    action: if
+    condition: $virtual_disks
+    then:
+      - name: ArrayPush_35
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $log
+          - name: item
+            value: "\"Adding virtual disks: \" + JSON.stringify($virtual_disks)"
+      - name: User_10
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: >-
+              "Beginning to configure additional disks: " +
+              JSON.stringify($virtual_disks)
+      - name: foreach_disk
+        action: foreach
+        list: $virtual_disks
+        blocks:
+          - name: User_11
+            action: plidep/User/private/SubFlows/Add_to_VM_Log
+            inputs:
+              - name: vm_id
+                value: $vm_build_id
+              - name: log_info
+                value: "\"Beginning to build \" + $foreach_disk.item[\"name\"]"
+          - name: Try_10
+            action: try
+            try:
+              - name: new_disk
+                action: plidep/User/private/VMware/Add_Disk_to_Linux
+                inputs:
+                  - name: vm_disksize
+                    value: $foreach_disk.item["size"]
+                  - name: vmware_rest_authkey
+                    value: $vmware_authkey_rest
+                  - name: vm_name
+                    value: $hostname
+                  - name: vm_moid
+                    value: $vm_moid
+                  - name: mount_point
+                    value: $foreach_disk.item["name"]
+                  - name: vm_username
+                    value: $template_username
+                  - name: vm_password
+                    value: $template_password
+                  - name: vmware_soap_authkey
+                    value: $vmware_authkey_soap
+              - name: ArrayPush_36
+                action: system/Common/Array/ArrayPush
+                inputs:
+                  - name: array
+                    value: $info
+                  - name: item
+                    value: "\"Added disk: \" + JSON.stringify($new_disk)"
+            catch:
+              - name: User_12
+                action: plidep/User/private/SubFlows/Add_to_VM_Log
+                inputs:
+                  - name: vm_id
+                    value: $vm_build_id
+                  - name: log_info
+                    value: >-
+                      "Failed to configure disk: " +
+                      JSON.stringify($Try_10.message)
+              - name: MySQL_13
+                action: system/MySQL/Update
+                inputs:
+                  - name: authKey
+                    value: $mysql_auth
+                  - name: table_name
+                    value: "\"vm_builds\""
+                  - name: columnsValues
+                    value: >-
+                      `status='ERROR',build_details='Failed to create disk
+                      ${$foreach_disk.item["name"]}'`
+                  - name: where
+                    value: "`id='${$vm_build_id}'`"
+              - name: ArrayPush_17
+                action: system/Common/Array/ArrayPush
+                inputs:
+                  - name: array
+                    value: $warning
+                  - name: item
+                    value: >-
+                      "Failed to create virtual disk: " +
+                      JSON.stringify($Try_10.message)
+          - name: Sleep_3
+            action: system/Common/Sleep
+            inputs:
+              - name: seconds
+                value: "30"
+    else: []
+  - action: comment
+    value: Let's get the total disk size
+  - name: User_24
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "\"Getting total disk size\""
+  - name: total_disk_size
+    action: plidep/User/private/VMware/SubFlows/Get_Total_Disk_Sizes
+    inputs:
+      - name: vmware_rest_api
+        value: $vmware_authkey_rest
+      - name: vm_moid
+        value: $vm_moid
+  - name: User_25
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "\"Total disk: \" + $total_disk_size.total_disk "
+  - name: ArrayPush_21
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"Total disk: \" + $total_disk_size.total_disk "
+  - name: User_13
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "\"Beginning to configure NIC interfaces\""
+  - name: ArrayPush_37
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"Configuring networks\""
+  - name: User_41
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "\"Configuring networks\""
+  - name: Try_11
+    action: try
+    try:
+      - name: Assign_36
+        action: assign
+        variable: $network_ids
+        value: "[-1,-1]"
+      - name: If_10
+        action: if
+        condition: $plipam_ids["network1"]
+        then:
+          - name: If_11
+            action: if
+            condition: $plipam_ids["network1"][$build_index_id]
+            then:
+              - name: Assign_37
+                action: assign
+                variable: $network_ids[0]
+                value: $plipam_ids["network1"][$build_index_id]
+            else: []
+        else: []
+      - name: If_10_1
+        action: if
+        condition: $plipam_ids["network2"]
+        then:
+          - name: If_11_1
+            action: if
+            condition: $plipam_ids["network2"][$build_index_id]
+            then:
+              - name: Assign_37_1
+                action: assign
+                variable: $network_ids[1]
+                value: $plipam_ids["network2"][$build_index_id]
+            else: []
+        else: []
+      - name: User_14
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Running Update_VM_NICS flow\""
+      - name: update_vm_nic
+        action: plidep/User/private/VMware/SubFlows/Update_VM_NICS
+        inputs:
+          - name: vmware_rest_authkey
+            value: $vmware_authkey_rest
+          - name: vm_moid
+            value: $vm_moid
+          - name: networks
+            value: $networks
+          - name: vm_id
+            value: $vm_build_id
+          - name: plipam_ids
+            value: $network_ids
+          - name: vmware_soap_authkey
+            value: $vmware_authkey_soap
+      - name: ArrayPush_22
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $log
+          - name: item
+            value: $update_vm_nic.result
+      - name: assign_ip_address
+        action: assign
+        variable: $ip_address
+        value: $update_vm_nic.ip_address
+      - name: ArrayPush_23
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $info
+          - name: item
+            value: "\"IP Address: \" + $ip_address"
+    catch:
+      - name: User_23
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"Could not configure NICs: \" + JSON.stringify($Try_11)"
+      - name: MySQL_11
+        action: system/MySQL/Update
+        inputs:
+          - name: authKey
+            value: $mysql_auth
+          - name: db_name
+            value: "\"PliDep\""
+          - name: table_name
+            value: "\"vm_builds\""
+          - name: columnsValues
+            value: "\"status='FAILED',build_details='Failed to configure networks.'\""
+          - name: where
+            value: "`id='${$vm_build_id}'`"
+      - name: ArrayPush_38
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $critical
+          - name: item
+            value: >-
+              "Error configuring networks. Network configuration will need to be
+              performed manually. " + JSON.stringify($Try_11.message)
+  - name: Sleep_1
+    action: system/Common/Sleep
+    inputs:
+      - name: seconds
+        value: "10"
+  - name: User_19
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "\"Resetting VM\""
+  - name: Try_2
+    action: try
+    try:
+      - name: VMWare_1
+        action: system/VMWare/vSphere v6/vcenter/vm/power/resetVcenterVmPower
+        inputs:
+          - name: authKey
+            value: $vmware_authkey_rest
+          - name: vm
+            value: $vm_moid
+    catch:
+      - name: update_rhel_build_status_error
+        action: plidep/User/private/SubFlows/Update_Build_Status
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: build_status
+            value: "\"ERROR\""
+      - name: MySQL_1
+        action: system/MySQL/Update
+        inputs:
+          - name: authKey
+            value: $mysql_auth
+          - name: db_name
+            value: "\"PliDep\""
+          - name: table_name
+            value: "\"vm_builds\""
+          - name: columnsValues
+            value: "\"build_status='Reboot May be Needed'\""
+          - name: where
+            value: "`id='${$vm_build_id}'`"
+  - action: comment
+    value: build a document from the various variables
+  - name: MySQL_2
+    action: system/MySQL/Select
+    inputs:
+      - name: authKey
+        value: $mysql_auth
+      - name: db_name
+        value: "\"PliDep\""
+      - name: table_name
+        value: "\"vm_builds\""
+      - name: columns
+        value: "\"status\""
+      - name: where
+        value: "`id='${$vm_build_id}'`"
+  - name: If_3
+    action: if
+    condition: $MySQL_2.result[0]["status"] == "IN_PROGRESS"
+    then:
+      - name: Assign_1
+        action: assign
+        variable: $build_status
+        value: "\"COMPLETE\""
+      - name: MySQL_10
+        action: system/MySQL/MySQL Query
+        inputs:
+          - name: authKey
+            value: $mysql_auth
+          - name: db_name
+            value: "\"PliDep\""
+          - name: query
+            value: >-
+              `UPDATE vm_builds SET
+              total_disk_gb='${$total_disk_size.total_disk}',vm_moid='${$vm_moid}',status='${$build_status}',complete_datetime=now(),ip_address='${$ip_address}'
+              WHERE id='${$vm_build_id}'`
+      - name: TimestampNow_1
+        action: system/Common/DateTime/Timestamp Now
+      - name: create_date
+        action: system/Common/DateTime/Date Format ISO 8601
+        inputs:
+          - name: timestamp
+            value: "$TimestampNow_1.result "
+          - name: unit
+            value: "\"seconds\""
+    else: []
+  - name: If_3_1
+    action: if
+    condition: $MySQL_2.result[0]["status"] == "ERROR"
+    then:
+      - name: Assign_1_1
+        action: assign
+        variable: $build_status
+        value: "\"ERROR\""
+      - name: TimestampNow_1_1
+        action: system/Common/DateTime/Timestamp Now
+      - name: create_date_1
+        action: system/Common/DateTime/Date Format ISO 8601
+        inputs:
+          - name: timestamp
+            value: $TimestampNow_1_1.result
+          - name: unit
+            value: "\"seconds\""
+    else: []
+  - name: Try_12
+    action: try
+    try:
+      - name: If_13_1
+        action: if
+        condition: $backup_required
+        then:
+          - name: Assign_29_1_1
+            action: assign
+            variable: $Notes
+            value: >-
+              "Built by Pliant on " + $create_date.result + ".\nGroup: " +
+              $csdm_details["assignment_group"] + ".\nPliant Deployment ID " +
+              $deployment_id + ".\nOwner/Requestor: " + $requestor + ".\nBuilt
+              from " + $image_type + ".\nApplication Name: " +
+              $csdm_details["application_name"]
+        else:
+          - name: Assign_29_2
+            action: assign
+            variable: $Notes
+            value: >-
+              "Built by Pliant on " + $create_date.result + ".\nGroup: " +
+              $csdm_details["assignment_group"] + ".\nPliant Deployment ID " +
+              $deployment_id + ".\nOwner/Requestor: " + $requestor + ".\nBuilt
+              from " + $image_type + ".\nApplication Name: " +
+              $csdm_details["application_name"] + "\nNO_VADP"
+      - name: Assign_2
+        action: assign
+        variable: $info
+        value: "\"Notes assigned to vm build: \" + JSON.stringify($Notes)"
+      - name: User_42
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: "\"vmWare notes: \" + $Notes"
+      - name: VMWare_2_1
+        action: system/VMWare/VMWareSoap/ReconfigVM_Task
+        inputs:
+          - name: authKey
+            value: $vmware_authkey_soap
+          - name: _this
+            value: $vm_moid
+          - name: spec
+            value: |-
+              {
+                  "annotation": $Notes,
+              }
+    catch: []
+  - action: comment
+    value: And now update infoblox
+  - name: User_43
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "\"Powering down VM to add to Infoblox\""
+  - name: ArrayPush_39
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"Powering down VM to add host to Infoblox.\""
+  - name: get_vrf
+    action: system/MySQL/Select
+    inputs:
+      - name: authKey
+        value: $mysql_auth
+      - name: db_name
+        value: "\"PliDep\""
+      - name: table_name
+        value: "\"vrf t1,plipam t2\""
+      - name: columns
+        value: "\"t1.vrf_name\""
+      - name: where
+        value: >-
+          `t1.id=t2.vrf_id AND
+          t2.datacenter_network_moid='${$networks["network1"]["network_name"]}'`
+  - name: powerdown_vcenter_vm
+    action: system/VMWare/vSphere v6/vcenter/vm/power/stopVcenterVmPower
+    inputs:
+      - name: authKey
+        value: $vmware_authkey_rest
+      - name: vm
+        value: $vm_moid
+  - name: Try_1
+    action: try
+    try:
+      - name: update_infoblox
+        action: plidep/User/private/Infoblox/Add_Host_to_Infoblox
+        inputs:
+          - name: service
+            value: "\"Lab\""
+          - name: hostname
+            value: $hostname
+          - name: vrf
+            value: $get_vrf.result[0]["vrf_name"]
+          - name: ip_address
+            value: $ip_address
+          - name: vm_build_id
+            value: $vm_build_id
+    catch:
+      - name: ArrayPush_41
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $critical
+          - name: item
+            value: >-
+              "There was an error adding the host to Infoblox. This may need to
+              be performed manually. " + JSON.stringify($Try_1.message)
+      - name: User_54
+        action: plidep/User/private/SubFlows/Add_to_VM_Log
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+          - name: log_info
+            value: >-
+              "There was an error adding the host to Infoblox. This may need to
+              be performed manually. " + JSON.stringify($Try_1.message)
+  - name: start_vcenter_vm_power
+    action: system/VMWare/vSphere v6/vcenter/vm/power/startVcenterVmPower
+    inputs:
+      - name: authKey
+        value: $vmware_authkey_rest
+      - name: vm
+        value: $vm_moid
+  - name: ArrayPush_40
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"VM powered on.\""
+  - name: User_53
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "\"VM powered on.\""
+  - name: MySQL_10_2
+    action: system/MySQL/MySQL Query
+    inputs:
+      - name: authKey
+        value: $mysql_auth
+      - name: db_name
+        value: "\"PliDep\""
+      - name: query
+        value: >-
+          `UPDATE vm_builds SET
+          total_disk_gb='${$total_disk_size.total_disk}',vm_moid='${$vm_moid}',status='${$build_status}',complete_datetime=now(),ip_address='${$ip_address}',annotation='${$Notes}',system_serial_number='${$serial_number}'
+          WHERE id='${$vm_build_id}'`
+  - name: ArrayPush_42
+    action: system/Common/Array/ArrayPush
+    inputs:
+      - name: array
+        value: $log
+      - name: item
+        value: "\"Placing server into Pre-Production state in ServiceNow\""
+  - name: User_55
+    action: plidep/User/private/SubFlows/Add_to_VM_Log
+    inputs:
+      - name: vm_id
+        value: $vm_build_id
+      - name: log_info
+        value: "\"Placing server into Pre-Production state in ServiceNow\""
+  - name: Try_14
+    action: try
+    try:
+      - name: User_44
+        action: plidep/User/private/ServiceNow/Place_VM_Build_in_Pre-Production
+        inputs:
+          - name: vm_id
+            value: $vm_build_id
+    catch:
+      - name: Assign_3
+        action: assign
+        variable: $warning
+        value: >-
+          "An error occurred when placing server into Pre-Production state in
+          ServiceNow: " + JSON.stringify($Try_14.message)
+      - name: ArrayPush_43
+        action: system/Common/Array/ArrayPush
+        inputs:
+          - name: array
+            value: $critical
+          - name: item
+            value: >-
+              "An error occurred when placing server into Pre-Production state
+              in ServiceNow: " + JSON.stringify($Try_14.message)
+  - name: update_production_status
+    action: system/MySQL/Update
+    inputs:
+      - name: authKey
+        value: "\"plidep/MySQL_PliDep\""
+      - name: table_name
+        value: "\"vm_builds\""
+      - name: columnsValues
+        value: "\"production_status=0,virtual_appliance=0\""
+      - name: where
+        value: "`id='${$vm_build_id}'`"
+  - name: Function_1
+    function: |-
+      $debug["log"] = $log;
+      $debug["info"] = $info;
+      $debug["warning"] = $warning;
+      $debug["critical"] = $critical
+variables:
+  - name: Source_Template_Moid
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"vm-329037\""
+  - name: hostname
+    required: false
+    isInput: false
+    isOutput: true
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: vmware_authkey_soap
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"plidep/VMWARE_Bellevue_Lab_c5mblv01_SOAP_Authkey\""
+  - name: Resource_Pool_Moid
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: Host_Moid
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: vm_moid
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: clone_task_moid
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: template_username
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: template_password
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: debug
+    required: false
+    isInput: false
+    isOutput: true
+    level: INTERMEDIATE
+    type:
+      type: object
+    value: "{}"
+  - name: ip_address
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: Notes
+    required: false
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"Built by Pliant workflow\""
+  - name: Host_Preference
+    required: false
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: vmware_authkey_rest
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"plidep/VMWARE_Bellevue_Lab_c5mblv01_REST_Authkey\""
+  - name: deployment_id
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: number
+    value: "871"
+  - name: site_location_id
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: number
+    value: "85"
+  - name: vm_size_id
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: number
+    value: "235"
+  - name: quantity
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: number
+    value: "1"
+  - name: networks
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: object
+    value: >-
+      {"network1":{"network_name":"dvportgroup-404331","port_type":"DISTRIBUTED_PORTGROUP"},"network2":{"network_name":"dvportgroup-404335","port_type":"DISTRIBUTED_PORTGROUP"}}
+  - name: backup_required
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: boolean
+    value: "true"
+  - name: virtual_disks
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: array
+    value: "[]"
+  - name: num_cpu
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: number
+    value: "1"
+  - name: mem_size
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: number
+    value: "2"
+  - name: csdm
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"APM0102970\""
+  - name: result
+    required: false
+    isInput: false
+    isOutput: true
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: nic_moid
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: mysql_auth
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"plidep/MySQL_PliDep\""
+  - name: networks_string
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: disk_config
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "null"
+  - name: begin_vm_build
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: complete_vm_build
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: vm_build_id
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: number
+    value: "0"
+  - name: log
+    required: false
+    isInput: false
+    isOutput: true
+    level: INTERMEDIATE
+    type:
+      type: array
+    value: "[]"
+  - name: build_status
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: hostname_command
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: commands_issued
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: cluster_moid
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: datastore_moid
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: network_moids
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: datacenter_moid
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: folder_moid
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"group-v1303289\""
+  - name: vm_image_id
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: number
+    value: "212"
+  - name: csdm_details
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "{}"
+  - name: requestor
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"victor.wiebe@t-mobile.com\""
+  - name: image_type
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"template\""
+  - name: vcenter_id
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: number
+    value: "45"
+  - name: operating_system
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"linux\""
+  - name: clone_task_moid_status
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "{}"
+  - name: deployment_environment
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"production\""
+  - name: build_index_id
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "0"
+  - name: plipam_ids
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: object
+    value: "{\"network1\":[65246],\"network2\":[64929]}"
+  - name: network_ids
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "[]"
+  - name: ue_password
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: info
+    required: false
+    isInput: false
+    isOutput: true
+    level: INTERMEDIATE
+    type:
+      type: array
+    value: "[]"
+  - name: warning
+    required: false
+    isInput: false
+    isOutput: true
+    level: INTERMEDIATE
+    type:
+      type: array
+    value: "[]"
+  - name: critical
+    required: false
+    isInput: false
+    isOutput: true
+    level: INTERMEDIATE
+    type:
+      type: array
+    value: "[]"
+  - name: serial_number
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: hostname_code
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: new_vm_password
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: new_ue_vm_password
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: vcenter_name
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: new_vm_username
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: initial_hostname
+    required: false
+    isInput: false
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: string
+    value: "\"\""
+  - name: deployment_environment_id
+    required: true
+    isInput: true
+    isOutput: false
+    level: INTERMEDIATE
+    type:
+      type: number
+    value: "0"
+meta:
+  version: 5
+  description: >-
+    This workflow uses the vSphere SOAP API (from versions 6.5 and before) to
+    clone a RHEL 8.3 VM and assign it a static IP
+  workerGroup: default
+  layout: flow
+  lastUpdated: 1680517166183
+  numberOfBlocks: 100
